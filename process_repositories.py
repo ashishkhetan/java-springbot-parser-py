@@ -36,15 +36,20 @@ class RepositoryProcessor:
                 repo.remotes.origin.pull()
             else:
                 logger.info(f"Cloning repository: {repo_url}")
-                # Construct URL with credentials if provided
+                # Set up Git credentials if provided
                 if self.git_username and self.git_password:
-                    parsed_url = repo_url.split('://')
-                    if len(parsed_url) == 2:
-                        auth_url = f"{parsed_url[0]}://{self.git_username}:{self.git_password}@{parsed_url[1]}"
-                        git.Repo.clone_from(auth_url, repo_path)
-                    else:
-                        logger.error(f"Invalid repository URL format: {repo_url}")
-                        raise ValueError("Invalid repository URL format")
+                    git_env = os.environ.copy()
+                    git_env['GIT_ASKPASS'] = 'echo'
+                    git_env['GIT_USERNAME'] = self.git_username
+                    git_env['GIT_PASSWORD'] = self.git_password
+                    
+                    # Clone with credentials in environment
+                    git.Repo.clone_from(
+                        repo_url, 
+                        repo_path,
+                        env=git_env,
+                        config=['credential.helper=store']
+                    )
                 else:
                     git.Repo.clone_from(repo_url, repo_path)
 
