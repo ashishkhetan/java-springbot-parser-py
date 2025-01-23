@@ -1,0 +1,7 @@
+javalang==0.13.0  # For parsing Java source code
+networkx==3.1    # For creating dependency graphs
+graphviz==0.20.1 # For visualizing dependencies
+pydantic==2.5.1  # For data models
+neo4j==5.14.1    # For Neo4j database integration
+python-dotenv==1.0.0  # For environment variables
+gitpython==3.1.40    # For git repository handling

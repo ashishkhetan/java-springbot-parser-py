@@ -1,0 +1,49 @@
+// API Dependencies
+digraph {
+	rankdir=LR
+	node [shape=rectangle style=rounded]
+	subgraph cluster_endpoints {
+		label="API Endpoints"
+		endpoint__GET [label=GET
+ color=blue]
+	}
+	dto_UserLocationDTO -> entity_Location [label="maps to"]
+	dto_UserLocationDTO -> entity_User [label="maps to"]
+	subgraph cluster_dtos {
+		label=DTOs
+		dto_UserLocationDTO [label="UserLocationDTO
+userId: long
+email: String
+place: String
+longitude: double
+latitude: double" color=green]
+	}
+	entity_User -> entity_Location [label=ManyToOne]
+	subgraph cluster_entities {
+		label="Database Entities"
+		entity_Location [label="Location
+(location)
+id: long
+place: String
+description: String
+longitude: double
+latitude: double" color=red]
+		entity_User [label="User
+(user)
+id: long
+email: String
+firstName: String
+lastName: String
+password: String
+location: Location" color=red]
+	}
+	service_UserService -> dto_UserLocationDTO [label=uses]
+	service_UserService -> entity_User [label=uses]
+	subgraph cluster_services {
+		label=Services
+		service_UserService [label="UserService
+getAllUsersLocation
+convertEntityToDto
+convertDtoToEntity" color=orange]
+	}
+}
