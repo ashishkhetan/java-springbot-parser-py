@@ -72,6 +72,76 @@ This will:
 - Process all repositories and local directories in repositories.txt
 - Store dependency data in Neo4j
 
+## Local Development
+
+For local development and debugging, you can use Python virtual environments instead of Docker. Below are instructions for both Windows and macOS:
+
+### Windows Setup
+
+1. Create a Python virtual environment:
+```powershell
+python -m venv venv
+.\venv\Scripts\activate
+```
+
+2. Install dependencies:
+```powershell
+pip install -r requirements.txt
+```
+
+3. Install Graphviz:
+- Download the Windows installer from https://graphviz.org/download/
+- Run the installer
+- Add Graphviz to your system PATH (the installer should do this automatically)
+
+### macOS Setup
+
+1. Create a Python virtual environment:
+```bash
+python3 -m venv venv
+source venv/bin/activate
+```
+
+2. Install dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+3. Install Graphviz using Homebrew:
+```bash
+brew install graphviz
+```
+
+### Common Setup (Both Platforms)
+
+4. Configure your .env file for local development:
+```env
+NEO4J_URI=bolt://localhost:7687
+NEO4J_USER=neo4j
+NEO4J_PASSWORD=password123
+SERVICES_DIR=/path/to/your/services
+```
+
+5. Start Neo4j using Docker:
+```bash
+docker-compose up neo4j -d
+```
+
+6. Run the Python scripts:
+```bash
+# Process repositories
+python process_repositories.py
+
+# Analyze dependencies
+python analyze.py
+```
+
+This setup allows you to:
+- Use your IDE's debugging features
+- Make code changes without rebuilding Docker containers
+- Run scripts individually for testing
+- Set breakpoints and inspect variables
+
 ## Authentication
 
 ### Private Repositories
