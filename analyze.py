@@ -5,6 +5,11 @@ from pydantic import BaseModel
 import graphviz
 import json
 import argparse
+import os
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Models
 class EndpointInfo(BaseModel):
@@ -58,7 +63,7 @@ class JavaSpringParser:
                 content = file.read()
             return javalang.parse.parse(content)
         except Exception as e:
-            print(f"Error parsing {file_path}: {str(e)}")
+            logger.error(f"Error parsing {file_path}: {str(e)}")
             return None
 
     def parse_controller(self, file_path: Path):
@@ -241,16 +246,20 @@ class JavaSpringParser:
 
     def parse_project(self) -> DependencyGraph:
         for file_path in self.base_path.rglob("*.java"):
-            content = file_path.read_text(encoding='utf-8')
-            
-            if '@RestController' in content:
-                self.parse_controller(file_path)
-            elif '@Entity' in content:
-                self.parse_entity(file_path)
-            elif 'DTO' in file_path.name:
-                self.parse_dto(file_path)
-            elif '@Service' in content:
-                self.parse_service(file_path)
+            try:
+                content = file_path.read_text(encoding='utf-8')
+                
+                if '@RestController' in content:
+                    self.parse_controller(file_path)
+                elif '@Entity' in content:
+                    self.parse_entity(file_path)
+                elif 'DTO' in file_path.name:
+                    self.parse_dto(file_path)
+                elif '@Service' in content:
+                    self.parse_service(file_path)
+            except Exception as e:
+                logger.error(f"Error processing file {file_path}: {str(e)}")
+                continue
 
         self.analyze_dependencies()
 
@@ -269,55 +278,71 @@ class DependencyVisualizer:
         self.dot.attr(rankdir='LR')
         
     def create_graph(self):
-        self.dot.attr('node', shape='rectangle', style='rounded')
-        
-        with self.dot.subgraph(name='cluster_endpoints') as c:
-            c.attr(label='API Endpoints')
-            for endpoint in self.graph.endpoints:
-                node_id = f"endpoint_{endpoint.path}_{endpoint.method}"
-                label = f"{endpoint.method}\n{endpoint.path}"
-                c.node(node_id, label, color='blue')
-                
-                if endpoint.request_dto:
-                    self.dot.edge(node_id, f"dto_{endpoint.request_dto}", 'uses')
-                if endpoint.response_dto:
-                    self.dot.edge(node_id, f"dto_{endpoint.response_dto}", 'returns')
-        
-        with self.dot.subgraph(name='cluster_dtos') as c:
-            c.attr(label='DTOs')
-            for dto_name, dto in self.graph.dtos.items():
-                label = f"{dto_name}\n" + "\n".join(f"{k}: {v}" for k, v in dto.fields.items())
-                c.node(f"dto_{dto_name}", label, color='green')
-                
-                for entity in dto.mapped_to_entities:
-                    self.dot.edge(f"dto_{dto_name}", f"entity_{entity}", 'maps to')
-        
-        with self.dot.subgraph(name='cluster_entities') as c:
-            c.attr(label='Database Entities')
-            for entity_name, entity in self.graph.entities.items():
-                label = f"{entity_name}\n({entity.table_name})\n" + "\n".join(f"{k}: {v}" for k, v in entity.fields.items())
-                c.node(f"entity_{entity_name}", label, color='red')
-                
-                for rel in entity.relationships:
-                    self.dot.edge(
-                        f"entity_{entity_name}",
-                        f"entity_{rel['target_entity']}",
-                        rel['type']
-                    )
-        
-        with self.dot.subgraph(name='cluster_services') as c:
-            c.attr(label='Services')
-            for service_name, service in self.graph.services.items():
-                label = f"{service_name}\n" + "\n".join(service.methods)
-                c.node(f"service_{service_name}", label, color='orange')
-                
-                for dto in service.used_dtos:
-                    self.dot.edge(f"service_{service_name}", f"dto_{dto}", 'uses')
-                for entity in service.used_entities:
-                    self.dot.edge(f"service_{service_name}", f"entity_{entity}", 'uses')
+        try:
+            self.dot.attr('node', shape='rectangle', style='rounded')
+            
+            with self.dot.subgraph(name='cluster_endpoints') as c:
+                c.attr(label='API Endpoints')
+                for endpoint in self.graph.endpoints:
+                    node_id = f"endpoint_{endpoint.path}_{endpoint.method}"
+                    label = f"{endpoint.method}\n{endpoint.path}"
+                    c.node(node_id, label, color='blue')
+                    
+                    if endpoint.request_dto:
+                        self.dot.edge(node_id, f"dto_{endpoint.request_dto}", 'uses')
+                    if endpoint.response_dto:
+                        self.dot.edge(node_id, f"dto_{endpoint.response_dto}", 'returns')
+            
+            with self.dot.subgraph(name='cluster_dtos') as c:
+                c.attr(label='DTOs')
+                for dto_name, dto in self.graph.dtos.items():
+                    label = f"{dto_name}\n" + "\n".join(f"{k}: {v}" for k, v in dto.fields.items())
+                    c.node(f"dto_{dto_name}", label, color='green')
+                    
+                    for entity in dto.mapped_to_entities:
+                        self.dot.edge(f"dto_{dto_name}", f"entity_{entity}", 'maps to')
+            
+            with self.dot.subgraph(name='cluster_entities') as c:
+                c.attr(label='Database Entities')
+                for entity_name, entity in self.graph.entities.items():
+                    label = f"{entity_name}\n({entity.table_name})\n" + "\n".join(f"{k}: {v}" for k, v in entity.fields.items())
+                    c.node(f"entity_{entity_name}", label, color='red')
+                    
+                    for rel in entity.relationships:
+                        self.dot.edge(
+                            f"entity_{entity_name}",
+                            f"entity_{rel['target_entity']}",
+                            rel['type']
+                        )
+            
+            with self.dot.subgraph(name='cluster_services') as c:
+                c.attr(label='Services')
+                for service_name, service in self.graph.services.items():
+                    label = f"{service_name}\n" + "\n".join(service.methods)
+                    c.node(f"service_{service_name}", label, color='orange')
+                    
+                    for dto in service.used_dtos:
+                        self.dot.edge(f"service_{service_name}", f"dto_{dto}", 'uses')
+                    for entity in service.used_entities:
+                        self.dot.edge(f"service_{service_name}", f"entity_{entity}", 'uses')
+        except Exception as e:
+            logger.error(f"Error creating graph: {str(e)}")
+            raise
     
     def save(self, output_path: str, format: str = 'png'):
-        self.dot.render(output_path, format=format, cleanup=True)
+        try:
+            # Ensure the output directory exists
+            output_dir = os.path.dirname(output_path)
+            if output_dir:
+                os.makedirs(output_dir, exist_ok=True)
+            
+            # Try to render the graph
+            self.dot.render(output_path, format=format, cleanup=True)
+        except Exception as e:
+            logger.error(f"Failed to save visualization: {str(e)}")
+            if "failed to execute" in str(e) and "dot" in str(e):
+                logger.error("Graphviz 'dot' executable not found. Please install Graphviz and ensure it's in your system PATH.")
+            raise
     
     def get_impact_analysis(self, dto_name: str) -> Dict[str, any]:
         if dto_name not in self.graph.dtos:
@@ -362,25 +387,32 @@ def main():
     
     args = parser.parse_args()
     
-    java_parser = JavaSpringParser(args.project_path)
-    dependency_graph = java_parser.parse_project()
-    visualizer = DependencyVisualizer(dependency_graph)
-    
-    if args.analyze_dto:
-        impact_analysis = visualizer.get_impact_analysis(args.analyze_dto)
-        print("\nImpact Analysis:")
-        print(json.dumps(impact_analysis, indent=2))
-    else:
-        visualizer.create_graph()
-        output_path = Path(args.output)
-        visualizer.save(str(output_path), args.format)
-        print(f"\nDependency graph saved to: {output_path}.{args.format}")
+    try:
+        java_parser = JavaSpringParser(args.project_path)
+        dependency_graph = java_parser.parse_project()
+        visualizer = DependencyVisualizer(dependency_graph)
         
-        print("\nProject Summary:")
-        print(f"Total Endpoints: {len(dependency_graph.endpoints)}")
-        print(f"Total DTOs: {len(dependency_graph.dtos)}")
-        print(f"Total Entities: {len(dependency_graph.entities)}")
-        print(f"Total Services: {len(dependency_graph.services)}")
+        if args.analyze_dto:
+            impact_analysis = visualizer.get_impact_analysis(args.analyze_dto)
+            print("\nImpact Analysis:")
+            print(json.dumps(impact_analysis, indent=2))
+        else:
+            try:
+                visualizer.create_graph()
+                output_path = Path(args.output)
+                visualizer.save(str(output_path), args.format)
+                logger.info(f"Dependency graph saved to: {output_path}.{args.format}")
+            except Exception as e:
+                logger.warning("Could not generate visualization (Graphviz may not be installed). Continuing with analysis...")
+            
+            print("\nProject Summary:")
+            print(f"Total Endpoints: {len(dependency_graph.endpoints)}")
+            print(f"Total DTOs: {len(dependency_graph.dtos)}")
+            print(f"Total Entities: {len(dependency_graph.entities)}")
+            print(f"Total Services: {len(dependency_graph.services)}")
+    except Exception as e:
+        logger.error(f"Error analyzing project: {str(e)}")
+        raise
 
 if __name__ == "__main__":
     main()

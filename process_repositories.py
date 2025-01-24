@@ -25,7 +25,7 @@ class RepositoryProcessor:
         """Process a local directory containing the service code."""
         try:
             # Extract service name from directory path
-            service_name = os.path.basename(dir_path.rstrip('/'))
+            service_name = os.path.basename(dir_path.rstrip(os.sep))
             logger.info(f"Processing local directory: {service_name}")
 
             # Parse Java files
@@ -46,14 +46,15 @@ class RepositoryProcessor:
 
             logger.info(f"Successfully processed service: {service_name}")
             
-            # Optional: Generate and save visualization
+            # Optional: Generate and save visualization if Graphviz is available
             try:
                 from analyze import DependencyVisualizer
                 visualizer = DependencyVisualizer(dependency_graph)
                 visualizer.create_graph()
-                visualizer.save(f"graphs/{service_name}_dependencies", "png")
+                visualizer.save(os.path.join("graphs", f"{service_name}_dependencies"), "png")
+                logger.info(f"Generated visualization for {service_name}")
             except Exception as e:
-                logger.warning(f"Failed to generate visualization for {service_name}: {str(e)}")
+                logger.warning("Could not generate visualization (Graphviz may not be installed). Continuing with analysis...")
 
         except Exception as e:
             logger.error(f"Error processing directory {dir_path}: {str(e)}")
@@ -77,7 +78,7 @@ class RepositoryProcessor:
                 # Set up Git credentials if provided
                 if self.git_username and self.git_password:
                     git_env = os.environ.copy()
-                    git_env['GIT_ASKPASS'] = 'echo'
+                    # Use platform-independent way to handle Git credentials
                     git_env['GIT_USERNAME'] = self.git_username
                     git_env['GIT_PASSWORD'] = self.git_password
                     
@@ -115,7 +116,7 @@ class RepositoryProcessor:
                 from analyze import DependencyVisualizer
                 visualizer = DependencyVisualizer(dependency_graph)
                 visualizer.create_graph()
-                visualizer.save(f"graphs/{repo_name}_dependencies", "png")
+                visualizer.save(os.path.join("graphs", f"{repo_name}_dependencies"), "png")
             except Exception as e:
                 logger.warning(f"Failed to generate visualization for {repo_name}: {str(e)}")
 
@@ -133,8 +134,8 @@ class RepositoryProcessor:
             
             for entry in entries:
                 try:
-                    # Check if entry is a local directory path (starts with ./ or /)
-                    if entry.startswith(('./','/')):
+                    # Check if entry is a local directory path
+                    if entry.startswith(('.', '/', '~')) or os.path.isabs(entry):
                         self.process_local_directory(entry)
                     else:
                         self.process_repository(entry)
@@ -231,19 +232,21 @@ class RepositoryProcessor:
             
             # 4. Try to generate visualizations if Graphviz is available
             try:
+                # Create graphs directory if it doesn't exist
+                Path("graphs").mkdir(exist_ok=True)
+                
                 for repo_name, repo_data in self.neo4j_store.get_all_repositories():
-                    parser = JavaSpringParser(str(self.repos_dir / repo_name))
-                    dependency_graph = parser.parse_project()
-                    visualizer = DependencyVisualizer(dependency_graph)
-                    visualizer.create_graph()
-                    
-                    # Create graphs directory if it doesn't exist
-                    Path("graphs").mkdir(exist_ok=True)
-                    
-                    visualizer.save(f"graphs/{repo_name}_dependencies", "png")
-                    logger.info(f"Generated visualization for {repo_name}")
+                    try:
+                        parser = JavaSpringParser(str(self.repos_dir / repo_name))
+                        dependency_graph = parser.parse_project()
+                        visualizer = DependencyVisualizer(dependency_graph)
+                        visualizer.create_graph()
+                        visualizer.save(os.path.join("graphs", f"{repo_name}_dependencies"), "png")
+                        logger.info(f"Generated visualization for {repo_name}")
+                    except Exception as e:
+                        logger.warning("Could not generate visualization (Graphviz may not be installed). Continuing with analysis...")
             except Exception as e:
-                logger.warning(f"Failed to generate visualizations: {str(e)}")
+                logger.warning("Could not create graphs directory. Skipping visualizations.")
             
         except Exception as e:
             logger.error(f"Error generating comprehensive analysis: {str(e)}")
