@@ -34,10 +34,10 @@ class RepositoryProcessor:
             
             # Convert to dictionary for Neo4j storage
             graph_dict = {
-                'endpoints': [endpoint.dict() for endpoint in dependency_graph.endpoints],
-                'dtos': {name: dto.dict() for name, dto in dependency_graph.dtos.items()},
-                'entities': {name: entity.dict() for name, entity in dependency_graph.entities.items()},
-                'services': {name: service.dict() for name, service in dependency_graph.services.items()}
+                'endpoints': [endpoint.model_dump() for endpoint in dependency_graph.endpoints],
+                'dtos': {name: dto.model_dump() for name, dto in dependency_graph.dtos.items()},
+                'entities': {name: entity.model_dump() for name, entity in dependency_graph.entities.items()},
+                'services': {name: service.model_dump() for name, service in dependency_graph.services.items()}
             }
 
             # Store in Neo4j
@@ -98,10 +98,10 @@ class RepositoryProcessor:
             
             # Convert to dictionary for Neo4j storage
             graph_dict = {
-                'endpoints': [endpoint.dict() for endpoint in dependency_graph.endpoints],
-                'dtos': {name: dto.dict() for name, dto in dependency_graph.dtos.items()},
-                'entities': {name: entity.dict() for name, entity in dependency_graph.entities.items()},
-                'services': {name: service.dict() for name, service in dependency_graph.services.items()}
+                'endpoints': [endpoint.model_dump() for endpoint in dependency_graph.endpoints],
+                'dtos': {name: dto.model_dump() for name, dto in dependency_graph.dtos.items()},
+                'entities': {name: entity.model_dump() for name, entity in dependency_graph.entities.items()},
+                'services': {name: service.model_dump() for name, service in dependency_graph.services.items()}
             }
 
             # Store in Neo4j
@@ -142,11 +142,111 @@ class RepositoryProcessor:
                     logger.error(f"Failed to process entry {entry}: {str(e)}")
                     continue
 
-            # Generate cross-service dependency report
-            self._generate_dependency_report()
-
+            # Generate comprehensive analysis
+            self._generate_comprehensive_analysis()
         except Exception as e:
             logger.error(f"Error processing repositories file: {str(e)}")
+            raise
+        finally:
+            self.neo4j_store.close()
+
+    def _generate_comprehensive_analysis(self):
+        """Generate a comprehensive analysis of all components."""
+        try:
+            # 1. Cross-service dependencies
+            dependencies = self.neo4j_store.get_cross_service_dependencies()
+            
+            # 2. Get all DTOs and their impact analysis
+            dto_analysis = {}
+            for repo_name, repo_data in self.neo4j_store.get_all_repositories():
+                for dto in repo_data.get('dtos', []):
+                    try:
+                        from analyze import JavaSpringParser, DependencyVisualizer
+                        parser = JavaSpringParser(str(self.repos_dir / repo_name))
+                        dependency_graph = parser.parse_project()
+                        visualizer = DependencyVisualizer(dependency_graph)
+                        dto_name = dto.get('name')
+                        if dto_name:
+                            dto_analysis[f"{repo_name}/{dto_name}"] = visualizer.get_impact_analysis(dto_name)
+                    except Exception as e:
+                        logger.warning(f"Failed to analyze DTO {dto_name} in {repo_name}: {str(e)}")
+
+            # 3. Generate comprehensive report
+            report = {
+                "cross_service_dependencies": dependencies,
+                "dto_analysis": dto_analysis,
+                "summary": {
+                    "total_dependencies": len(dependencies),
+                    "affected_repositories": len(set(
+                        [d["from_repo"] for d in dependencies] +
+                        [d["to_repo"] for d in dependencies]
+                    )),
+                    "total_dtos_analyzed": len(dto_analysis)
+                },
+                "components": {}
+            }
+
+            # Process each repository's data
+            for repo_name, repo_data in self.neo4j_store.get_all_repositories():
+                report["components"][repo_name] = {
+                    "endpoints": [
+                        {
+                            "path": endpoint.get("path"),
+                            "method": endpoint.get("method"),
+                            "controller": endpoint.get("controller_class"),
+                            "request_dto": endpoint.get("request_dto"),
+                            "response_dto": endpoint.get("response_dto")
+                        }
+                        for endpoint in repo_data.get('endpoints', [])
+                    ],
+                    "services": [
+                        {
+                            "name": service.get("name"),
+                            "methods": service.get("methods", []),
+                            "used_dtos": service.get("used_dtos", []),
+                            "used_entities": service.get("used_entities", [])
+                        }
+                        for service in repo_data.get('services', [])
+                    ],
+                    "entities": [
+                        {
+                            "name": entity.get("name"),
+                            "table": entity.get("table_name"),
+                            "fields": {
+                                field.split(':')[0]: field.split(':')[1]
+                                for field in entity.get("fields", "").split(',')
+                                if ':' in field
+                            },
+                            "relationships": entity.get("relationships", [])
+                        }
+                        for entity in repo_data.get('entities', [])
+                    ]
+                }
+
+            # Save comprehensive report
+            with open('dependency_analysis.json', 'w') as f:
+                json.dump(report, f, indent=2)
+                
+            logger.info("Generated comprehensive analysis: dependency_analysis.json")
+            
+            # 4. Try to generate visualizations if Graphviz is available
+            try:
+                for repo_name, repo_data in self.neo4j_store.get_all_repositories():
+                    parser = JavaSpringParser(str(self.repos_dir / repo_name))
+                    dependency_graph = parser.parse_project()
+                    visualizer = DependencyVisualizer(dependency_graph)
+                    visualizer.create_graph()
+                    
+                    # Create graphs directory if it doesn't exist
+                    Path("graphs").mkdir(exist_ok=True)
+                    
+                    visualizer.save(f"graphs/{repo_name}_dependencies", "png")
+                    logger.info(f"Generated visualization for {repo_name}")
+            except Exception as e:
+                logger.warning(f"Failed to generate visualizations: {str(e)}")
+            
+        except Exception as e:
+            logger.error(f"Error generating comprehensive analysis: {str(e)}")
             raise
         finally:
             self.neo4j_store.close()

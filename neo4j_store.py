@@ -101,7 +101,10 @@ class Neo4jStore:
             WITH e
             UNWIND $relationships AS rel
             MERGE (target:Entity {name: rel.target_entity})
-            MERGE (e)-[:RELATES_TO {type: rel.type, field: rel.field}]->(target)
+            MERGE (e)-[:RELATES_TO {
+                type: rel.type,
+                field: rel.field
+            }]->(target)
         """, repo_name=repo_name, entity_name=entity_name,
              table_name=entity_info.get('table_name'),
              fields_str=fields_str,
@@ -116,11 +119,11 @@ class Neo4jStore:
             WITH s
             UNWIND $used_dtos AS dto_name
             MERGE (d:DTO {name: dto_name})
-            MERGE (s)-[:USES_DTO]->(d)
+            MERGE (s)-[:USES_DTO {methods: $methods}]->(d)
             WITH s
             UNWIND $used_entities AS entity_name
             MERGE (e:Entity {name: entity_name})
-            MERGE (s)-[:USES_ENTITY]->(e)
+            MERGE (s)-[:USES_ENTITY {methods: $methods}]->(e)
         """, repo_name=repo_name, service_name=service_name,
              methods=service_info.get('methods', []),
              used_dtos=service_info.get('used_dtos', []),
@@ -162,6 +165,51 @@ class Neo4jStore:
             """)
             
             return [record["dependency"] for record in result]
+
+    def get_all_repositories(self):
+        """Get all repositories and their data from Neo4j."""
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (r:Repository)
+                OPTIONAL MATCH (r)<-[:BELONGS_TO]-(e:Endpoint)
+                OPTIONAL MATCH (r)<-[:BELONGS_TO]-(d:DTO)
+                OPTIONAL MATCH (r)<-[:BELONGS_TO]-(en:Entity)
+                OPTIONAL MATCH (r)<-[:BELONGS_TO]-(s:Service)
+                WITH r,
+                     collect(DISTINCT {
+                         path: e.path,
+                         method: e.method,
+                         controller_class: e.controller_class,
+                         method_name: e.method_name,
+                         request_dto: e.request_dto,
+                         response_dto: e.response_dto
+                     }) as endpoints,
+                     collect(DISTINCT {
+                         name: d.name,
+                         fields: d.fields,
+                         used_in_controllers: [],
+                         mapped_to_entities: []
+                     }) as dtos,
+                     collect(DISTINCT {
+                         name: en.name,
+                         table_name: en.table_name,
+                         fields: en.fields,
+                         relationships: []
+                     }) as entities,
+                     collect(DISTINCT {
+                         name: s.name,
+                         methods: s.methods,
+                         used_dtos: [],
+                         used_entities: []
+                     }) as services
+                RETURN r.name as repo_name, {
+                    endpoints: endpoints,
+                    dtos: dtos,
+                    entities: entities,
+                    services: services
+                } as repo_data
+            """)
+            return [(record["repo_name"], record["repo_data"]) for record in result]
 
     def close(self):
         self.driver.close()
