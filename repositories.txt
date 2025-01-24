@@ -1,1 +1,1 @@
-https://github.com/RameshMF/springboot-dto-tutorial.git
+/springboot-dto-tutorial

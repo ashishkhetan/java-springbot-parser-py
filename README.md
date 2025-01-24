@@ -5,6 +5,7 @@ This tool analyzes Java Spring Boot microservices to map dependencies between se
 ## Features
 
 - Analyzes multiple Spring Boot repositories (both public and private)
+- Supports analyzing local service directories
 - Maps dependencies between:
   - REST endpoints
   - DTOs (Data Transfer Objects)
@@ -36,20 +37,29 @@ NEO4J_URI=bolt://neo4j:7687
 NEO4J_USER=neo4j
 NEO4J_PASSWORD=password123
 
-# Git Authentication (required for private repositories)
+# Git Authentication (for private repositories)
 GIT_USERNAME=your_github_username
 GIT_PASSWORD=your_github_password_or_token
+
+# Local Services Directory (optional)
+SERVICES_DIR=/path/to/your/services
 ```
 
-3. Configure repositories to analyze:
-Edit `repositories.txt` and add your Spring Boot repository URLs:
+3. Configure services to analyze:
+Edit `repositories.txt` and add either repository URLs or local directory paths:
 ```
-# Public repositories
+# Git repositories
 https://github.com/org/public-repo.git
-
-# Private repositories (no need to include credentials in URL)
 https://github.com/org/private-repo.git
+
+# Local directories (paths relative to SERVICES_DIR)
+/my-service
+/another-service
 ```
+
+You can analyze services from:
+- Git repositories (both public and private)
+- Local directories (services already on your machine)
 
 4. Start the services:
 ```bash
@@ -59,7 +69,7 @@ docker-compose up --build -d
 This will:
 - Start Neo4j database
 - Build and start the parser service
-- Process all repositories in repositories.txt
+- Process all repositories and local directories in repositories.txt
 - Store dependency data in Neo4j
 
 ## Authentication
@@ -82,6 +92,24 @@ The tool supports authentication for private repositories through environment va
    - The tool uses Git's credential system, which is compatible with enterprise environments
 
 Note: The tool no longer supports embedding credentials in URLs as this method is not compatible with some enterprise environments.
+
+## Local Directory Analysis
+
+To analyze services from your local machine:
+
+1. Set the `SERVICES_DIR` environment variable in `.env`:
+```env
+SERVICES_DIR=/path/to/your/services
+```
+
+2. Add local directory paths to `repositories.txt`:
+```
+# Local directories are specified relative to SERVICES_DIR
+/service1
+/service2/backend
+```
+
+3. The tool will analyze these directories directly without cloning.
 
 ## Accessing Results
 
@@ -120,7 +148,7 @@ RETURN d.name,
 
 ## Generated Files
 
-- `graphs/`: Contains generated dependency visualizations for each repository
+- `graphs/`: Contains generated dependency visualizations for each repository/service
 - `dependency_report.json`: Cross-service dependency analysis report
 - Neo4j database: Contains all dependency data for advanced querying
 
@@ -131,13 +159,15 @@ Configure these in `.env` file:
 - `NEO4J_USER`: Neo4j username (default: neo4j)
 - `NEO4J_PASSWORD`: Neo4j password (default: password123)
 - `REPOSITORIES_FILE`: Path to repositories list file (default: repositories.txt)
-- `GIT_USERNAME`: GitHub username for private repositories
-- `GIT_PASSWORD`: GitHub password or personal access token for private repositories
+- `GIT_USERNAME`: GitHub/Bitbucket username for private repositories
+- `GIT_PASSWORD`: GitHub/Bitbucket password or personal access token
+- `SERVICES_DIR`: Path to directory containing local services (optional)
 
 ## Architecture
 
-1. **Repository Processing**:
+1. **Service Processing**:
    - Clones/updates Git repositories (with authentication if needed)
+   - Analyzes local service directories
    - Parses Java source files
    - Extracts dependency information
 
@@ -186,3 +216,8 @@ docker-compose logs -f neo4j   # Neo4j logs
    docker-compose down
    docker-compose up --build -d
    ```
+
+6. If local directory analysis fails:
+   - Verify SERVICES_DIR path in .env is correct
+   - Ensure the paths in repositories.txt are relative to SERVICES_DIR
+   - Check file permissions for the mounted directories
