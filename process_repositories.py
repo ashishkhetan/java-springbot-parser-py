@@ -21,6 +21,44 @@ class RepositoryProcessor:
         self.git_username = os.getenv('GIT_USERNAME')
         self.git_password = os.getenv('GIT_PASSWORD')
 
+    def process_local_directory(self, dir_path: str):
+        """Process a local directory containing the service code."""
+        try:
+            # Extract service name from directory path
+            service_name = os.path.basename(dir_path.rstrip('/'))
+            logger.info(f"Processing local directory: {service_name}")
+
+            # Parse Java files
+            parser = JavaSpringParser(dir_path)
+            dependency_graph = parser.parse_project()
+            
+            # Convert to dictionary for Neo4j storage
+            graph_dict = {
+                'endpoints': [endpoint.dict() for endpoint in dependency_graph.endpoints],
+                'dtos': {name: dto.dict() for name, dto in dependency_graph.dtos.items()},
+                'entities': {name: entity.dict() for name, entity in dependency_graph.entities.items()},
+                'services': {name: service.dict() for name, service in dependency_graph.services.items()}
+            }
+
+            # Store in Neo4j
+            logger.info(f"Storing dependency data for {service_name} in Neo4j")
+            self.neo4j_store.store_repository_data(service_name, graph_dict)
+
+            logger.info(f"Successfully processed service: {service_name}")
+            
+            # Optional: Generate and save visualization
+            try:
+                from analyze import DependencyVisualizer
+                visualizer = DependencyVisualizer(dependency_graph)
+                visualizer.create_graph()
+                visualizer.save(f"graphs/{service_name}_dependencies", "png")
+            except Exception as e:
+                logger.warning(f"Failed to generate visualization for {service_name}: {str(e)}")
+
+        except Exception as e:
+            logger.error(f"Error processing directory {dir_path}: {str(e)}")
+            raise
+
     def process_repository(self, repo_url: str):
         try:
             # Extract repository name from URL
@@ -48,6 +86,7 @@ class RepositoryProcessor:
                         repo_url, 
                         repo_path,
                         env=git_env,
+                        allow_unsafe_options=True,
                         config=['credential.helper=store']
                     )
                 else:
@@ -85,18 +124,22 @@ class RepositoryProcessor:
             raise
 
     def process_repositories_file(self, file_path: str):
-        """Process a file containing repository URLs, one per line."""
+        """Process a file containing repository URLs or local directories, one per line."""
         try:
             with open(file_path, 'r') as f:
-                repos = [line.strip() for line in f if line.strip()]
+                entries = [line.strip() for line in f if line.strip() and not line.startswith('#')]
 
-            logger.info(f"Found {len(repos)} repositories to process")
+            logger.info(f"Found {len(entries)} entries to process")
             
-            for repo_url in repos:
+            for entry in entries:
                 try:
-                    self.process_repository(repo_url)
+                    # Check if entry is a local directory path (starts with ./ or /)
+                    if entry.startswith(('./','/')):
+                        self.process_local_directory(entry)
+                    else:
+                        self.process_repository(entry)
                 except Exception as e:
-                    logger.error(f"Failed to process repository {repo_url}: {str(e)}")
+                    logger.error(f"Failed to process entry {entry}: {str(e)}")
                     continue
 
             # Generate cross-service dependency report
