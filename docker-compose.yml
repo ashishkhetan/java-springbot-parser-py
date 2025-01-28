@@ -34,10 +34,11 @@ services:
     volumes:
       - ./repositories.txt:/app/repositories.txt
       - ./repos:/app/repos
-      - //c/Users/akhai/OneDrive/projects:/app/services  # Mount local services directory
+      - C:/Users/akhai/OneDrive/projects:/app/services  # Mount local services directory
     depends_on:
       neo4j:
         condition: service_healthy
+    command: ["tail", "-f", "/dev/null"]  # Keep container running
 
 volumes:
   neo4j_data:

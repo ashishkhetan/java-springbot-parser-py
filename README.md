@@ -169,17 +169,128 @@ To analyze services from your local machine:
 
 1. Set the `SERVICES_DIR` environment variable in `.env`:
 ```env
-SERVICES_DIR=/path/to/your/services
+# Windows path example
+SERVICES_DIR=C:/Users/username/projects/services
+
+# Unix path example
+SERVICES_DIR=/home/username/projects/services
 ```
 
-2. Add local directory paths to `repositories.txt`:
+2. Configure Docker Compose volume mount:
+   - Update the services volume mount in `docker-compose.yml`:
+   ```yaml
+   # For Windows
+   volumes:
+     - //c/Users/username/projects/services:/app/services
+
+   # For Unix
+   volumes:
+     - /home/username/projects/services:/app/services
+   ```
+   Note: Windows paths in Docker Compose must use forward slashes and start with `//c/` for C drive.
+
+3. Add local directory paths to `repositories.txt`:
 ```
 # Local directories are specified relative to SERVICES_DIR
 /service1
 /service2/backend
+
+# You can also use subdirectories
+/monorepo/service-a
+/monorepo/service-b
 ```
 
-3. The tool will analyze these directories directly without cloning.
+4. Directory Structure Requirements:
+   - Each service directory should be a complete Spring Boot project
+   - Must contain `src/main/java` directory with Java source files
+   - Should have proper package structure
+   - Example structure:
+     ```
+     service1/
+     ├── src/
+     │   └── main/
+     │       └── java/
+     │           └── com/
+     │               └── company/
+     │                   └── service/
+     │                       ├── controllers/
+     │                       ├── services/
+     │                       ├── models/
+     │                       └── repositories/
+     ├── pom.xml
+     └── ...
+     ```
+
+5. The tool will analyze these directories directly without cloning.
+
+6. Monitoring Local Directory Analysis:
+   - Check Docker logs for processing status:
+     ```bash
+     docker-compose logs -f parser
+     ```
+   - Watch Neo4j browser for new nodes being added
+   - Check `graphs/` directory for generated visualizations
+   - Monitor `dependency_analysis.json` for updates
+
+7. Validating Setup:
+   - Ensure correct directory permissions
+   - Verify Docker volume mounts:
+     ```bash
+     docker-compose exec parser ls /app/services
+     ```
+   - Check if Neo4j can access the parser service:
+     ```bash
+     docker-compose exec neo4j curl parser:8080/health
+     ```
+
+## Automated Analysis Process
+
+The tool automatically performs the following steps:
+
+1. Initial Processing:
+   - Scans repositories.txt for new entries
+   - Clones Git repositories or maps local directories
+   - Validates project structure and files
+
+2. Code Analysis:
+   - Parses Java source files
+   - Identifies Spring Boot components:
+     * REST Controllers and endpoints
+     * Service classes and methods
+     * DTOs and their fields
+     * Entity classes and relationships
+   - Maps dependencies between components
+
+3. Data Storage:
+   - Stores all components in Neo4j graph database
+   - Creates relationships between:
+     * Services and their dependencies
+     * DTOs and their usage
+     * Endpoints and their request/response types
+     * Entities and their relationships
+
+4. Visualization Generation:
+   - Creates dependency graphs for each service
+   - Generates cross-service dependency maps
+   - Produces impact analysis visualizations
+
+5. Continuous Monitoring:
+   - Watches for changes in Git repositories
+   - Detects modifications in local directories
+   - Updates analysis automatically
+
+6. Status Verification:
+   - Check processing status:
+     ```bash
+     # View parser logs
+     docker-compose logs -f parser
+     
+     # Check Neo4j connection
+     docker-compose exec parser curl neo4j:7474
+     
+     # Verify file processing
+     docker-compose exec parser ls -la /app/graphs
+     ```
 
 ## Accessing Results
 

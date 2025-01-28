@@ -24,27 +24,57 @@ class Neo4jStore:
                     logging.warning(f"Constraint creation failed: {str(e)}")
 
     def store_repository_data(self, repo_name: str, dependency_data: Dict):
-        with self.driver.session() as session:
-            # Create repository node
-            session.run("""
-                MERGE (r:Repository {name: $repo_name})
-            """, repo_name=repo_name)
+        logging.info(f"Storing data for repository: {repo_name}")
+        logging.info(f"Data to store: {dependency_data}")
+        
+        try:
+            with self.driver.session() as session:
+                # Create repository node
+                session.run("""
+                    MERGE (r:Repository {name: $repo_name})
+                """, repo_name=repo_name)
+                logging.info("Created repository node")
 
-            # Store endpoints
-            for endpoint in dependency_data.get('endpoints', []):
-                self._store_endpoint(session, repo_name, endpoint)
+                # Store endpoints
+                logging.info("Storing endpoints...")
+                for endpoint in dependency_data.get('endpoints', []):
+                    try:
+                        self._store_endpoint(session, repo_name, endpoint)
+                        logging.info(f"Stored endpoint: {endpoint.get('path')}")
+                    except Exception as e:
+                        logging.error(f"Error storing endpoint: {str(e)}")
 
-            # Store DTOs
-            for dto_name, dto_info in dependency_data.get('dtos', {}).items():
-                self._store_dto(session, repo_name, dto_name, dto_info)
+                # Store DTOs
+                logging.info("Storing DTOs...")
+                for dto_name, dto_info in dependency_data.get('dtos', {}).items():
+                    try:
+                        self._store_dto(session, repo_name, dto_name, dto_info)
+                        logging.info(f"Stored DTO: {dto_name}")
+                    except Exception as e:
+                        logging.error(f"Error storing DTO: {str(e)}")
 
-            # Store entities
-            for entity_name, entity_info in dependency_data.get('entities', {}).items():
-                self._store_entity(session, repo_name, entity_name, entity_info)
+                # Store entities
+                logging.info("Storing entities...")
+                for entity_name, entity_info in dependency_data.get('entities', {}).items():
+                    try:
+                        self._store_entity(session, repo_name, entity_name, entity_info)
+                        logging.info(f"Stored entity: {entity_name}")
+                    except Exception as e:
+                        logging.error(f"Error storing entity: {str(e)}")
 
-            # Store services
-            for service_name, service_info in dependency_data.get('services', {}).items():
-                self._store_service(session, repo_name, service_name, service_info)
+                # Store services
+                logging.info("Storing services...")
+                for service_name, service_info in dependency_data.get('services', {}).items():
+                    try:
+                        self._store_service(session, repo_name, service_name, service_info)
+                        logging.info(f"Stored service: {service_name}")
+                    except Exception as e:
+                        logging.error(f"Error storing service: {str(e)}")
+                
+                logging.info("Completed storing repository data")
+        except Exception as e:
+            logging.error(f"Error storing repository data: {str(e)}")
+            raise
 
     def _store_endpoint(self, session, repo_name: str, endpoint: Dict):
         session.run("""

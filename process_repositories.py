@@ -29,10 +29,17 @@ class RepositoryProcessor:
             logger.info(f"Processing local directory: {service_name}")
 
             # Parse Java files
+            logger.info(f"Creating parser for directory: {dir_path}")
+            logger.info(f"Directory contents: {os.listdir(dir_path)}")
+            logger.info(f"Java files: {list(Path(dir_path).rglob('*.java'))}")
+            
             parser = JavaSpringParser(dir_path)
+            logger.info("Parsing project...")
             dependency_graph = parser.parse_project()
+            logger.info(f"Found {len(dependency_graph.endpoints)} endpoints, {len(dependency_graph.dtos)} DTOs, {len(dependency_graph.entities)} entities, {len(dependency_graph.services)} services")
             
             # Convert to dictionary for Neo4j storage
+            logger.info("Converting to dictionary...")
             graph_dict = {
                 'endpoints': [endpoint.model_dump() for endpoint in dependency_graph.endpoints],
                 'dtos': {name: dto.model_dump() for name, dto in dependency_graph.dtos.items()},
@@ -215,8 +222,8 @@ class RepositoryProcessor:
                             "table": entity.get("table_name"),
                             "fields": {
                                 field.split(':')[0]: field.split(':')[1]
-                                for field in entity.get("fields", "").split(',')
-                                if ':' in field
+                                for field in (entity.get("fields", "") or "").split(',')
+                                if field and ':' in field
                             },
                             "relationships": entity.get("relationships", [])
                         }
