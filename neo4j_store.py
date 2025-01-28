@@ -11,7 +11,7 @@ class Neo4jStore:
         with self.driver.session() as session:
             # Create constraints for unique identifiers
             constraints = [
-                "CREATE CONSTRAINT endpoint_path IF NOT EXISTS FOR (e:Endpoint) REQUIRE e.path IS UNIQUE",
+                "CREATE CONSTRAINT endpoint_id IF NOT EXISTS FOR (e:Endpoint) REQUIRE e.unique_id IS UNIQUE",
                 "CREATE CONSTRAINT dto_name IF NOT EXISTS FOR (d:DTO) REQUIRE d.name IS UNIQUE",
                 "CREATE CONSTRAINT entity_name IF NOT EXISTS FOR (e:Entity) REQUIRE e.name IS UNIQUE",
                 "CREATE CONSTRAINT service_name IF NOT EXISTS FOR (s:Service) REQUIRE s.name IS UNIQUE",
@@ -83,7 +83,9 @@ class Neo4jStore:
                 path: $path,
                 method: $method,
                 controller_class: $controller_class,
-                method_name: $method_name
+                method_name: $method_name,
+                repository: $repo_name,
+                unique_id: $repo_name + '_' + $controller_class + '_' + $method_name
             })
             MERGE (e)-[:BELONGS_TO]->(r)
             WITH e
