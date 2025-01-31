@@ -4,7 +4,6 @@ __pycache__/
 *$py.class
 *.so
 .Python
-env/
 build/
 develop-eggs/
 dist/
@@ -24,6 +23,7 @@ wheels/
 # Virtual Environment
 venv/
 ENV/
+env/
 
 # IDE
 .idea/
@@ -34,7 +34,11 @@ ENV/
 # Project specific
 repos/
 graphs/
+services/
+dependency_analysis.json
 dependency_report.json
+
+# Environment variables
 .env
 
 # Neo4j
@@ -42,3 +46,6 @@ neo4j_data/
 neo4j_logs/
 neo4j_import/
 neo4j_plugins/
+
+# Logs
+*.log

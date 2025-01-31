@@ -7,6 +7,8 @@ from typing import List, Dict
 import json
 from neo4j_store import Neo4jStore
 from analyze import JavaSpringParser
+from service_mapping import ServiceMappingManager
+from feign_client_parser import FeignClientParser
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -14,25 +16,52 @@ logger = logging.getLogger(__name__)
 class RepositoryProcessor:
     def __init__(self, neo4j_uri: str, neo4j_user: str, neo4j_password: str):
         self.neo4j_store = Neo4jStore(neo4j_uri, neo4j_user, neo4j_password)
+        self.service_mapping_manager = ServiceMappingManager()
         self.repos_dir = Path("repos")
         self.repos_dir.mkdir(exist_ok=True)
         
         # Get Git credentials from environment
         self.git_username = os.getenv('GIT_USERNAME')
         self.git_password = os.getenv('GIT_PASSWORD')
+        
+        # Load service mappings
+        self.service_mapping_manager.load_from_repositories_file('repositories.txt')
 
     def process_local_directory(self, dir_path: str):
         """Process a local directory containing the service code."""
         try:
-            # Extract service name from directory path
-            service_name = os.path.basename(dir_path.rstrip(os.sep))
-            logger.info(f"Processing local directory: {service_name}")
+            # Get repository name and service mapping info
+            repo_name = os.path.basename(dir_path.rstrip(os.sep))
+            logger.info(f"Looking up service mapping for repo: {repo_name}")
+            logger.info(f"Full directory path: {dir_path}")
+            logger.info(f"Directory exists: {os.path.exists(dir_path)}")
+            if os.path.exists(dir_path):
+                logger.info(f"Directory contents: {os.listdir(dir_path)}")
+            
+            friendly_name = self.service_mapping_manager.get_friendly_name(dir_path)
+            service_name = self.service_mapping_manager.get_service_name(dir_path)
+            base_path = self.service_mapping_manager.get_base_path(dir_path)
+            
+            logger.info(f"Service mapping results:")
+            logger.info(f"- Friendly name: {friendly_name}")
+            logger.info(f"- Service name: {service_name}")
+            logger.info(f"- Base path: {base_path}")
+            
+            if not all([friendly_name, service_name, base_path]):
+                logger.error(f"Missing service mapping information for {repo_name}")
+                return
+                
+            logger.info(f"Processing local directory: {repo_name} ({friendly_name})")
+
+            # Load application properties for property resolution
+            self.service_mapping_manager.load_application_properties(dir_path)
 
             # Parse Java files
             logger.info(f"Creating parser for directory: {dir_path}")
             logger.info(f"Directory contents: {os.listdir(dir_path)}")
             logger.info(f"Java files: {list(Path(dir_path).rglob('*.java'))}")
             
+            # Parse dependencies
             parser = JavaSpringParser(dir_path)
             logger.info("Parsing project...")
             dependency_graph = parser.parse_project()
@@ -47,16 +76,29 @@ class RepositoryProcessor:
                 'services': {name: service.model_dump() for name, service in dependency_graph.services.items()}
             }
 
+            # Parse FeignClient service calls
+            logger.info("Parsing FeignClient service calls...")
+            feign_parser = FeignClientParser(self.service_mapping_manager)
+            service_calls = feign_parser.extract_service_calls(dir_path)
+            logger.info(f"Found {len(service_calls)} service calls")
+
             # Store in Neo4j
-            logger.info(f"Storing dependency data for {service_name} in Neo4j")
-            self.neo4j_store.store_repository_data(service_name, graph_dict)
+            logger.info(f"Storing dependency data for {repo_name} in Neo4j")
+            self.neo4j_store.store_repository_data(
+                repo_name, friendly_name, service_name, base_path, graph_dict
+            )
+            
+            # Store service calls
+            if service_calls:
+                logger.info("Storing service calls in Neo4j")
+                self.neo4j_store.store_service_calls(repo_name, service_calls)
 
             logger.info(f"Successfully processed service: {service_name}")
             
             # Optional: Generate and save visualization if Graphviz is available
             try:
                 from analyze import DependencyVisualizer
-                visualizer = DependencyVisualizer(dependency_graph)
+                visualizer = DependencyVisualizer(dependency_graph, service_calls)
                 visualizer.create_graph()
                 visualizer.save(os.path.join("graphs", f"{service_name}_dependencies"), "png")
                 logger.info(f"Generated visualization for {service_name}")
@@ -73,7 +115,16 @@ class RepositoryProcessor:
             repo_name = repo_url.split('/')[-1].replace('.git', '')
             repo_path = self.repos_dir / repo_name
             
-            logger.info(f"Processing repository: {repo_name}")
+            # Get service mapping info
+            friendly_name = self.service_mapping_manager.get_friendly_name(str(repo_path))
+            service_name = self.service_mapping_manager.get_service_name(str(repo_path))
+            base_path = self.service_mapping_manager.get_base_path(str(repo_path))
+            
+            if not all([friendly_name, service_name, base_path]):
+                logger.error(f"Missing service mapping information for {repo_name}")
+                return
+            
+            logger.info(f"Processing repository: {repo_name} ({friendly_name})")
             
             # Clone or update repository
             if repo_path.exists():
@@ -100,7 +151,10 @@ class RepositoryProcessor:
                 else:
                     git.Repo.clone_from(repo_url, repo_path)
 
-            # Parse Java files
+            # Load application properties for property resolution
+            self.service_mapping_manager.load_application_properties(str(repo_path))
+
+            # Parse Java files for dependencies
             parser = JavaSpringParser(str(repo_path))
             dependency_graph = parser.parse_project()
             
@@ -112,16 +166,29 @@ class RepositoryProcessor:
                 'services': {name: service.model_dump() for name, service in dependency_graph.services.items()}
             }
 
+            # Parse FeignClient service calls
+            logger.info("Parsing FeignClient service calls...")
+            feign_parser = FeignClientParser(self.service_mapping_manager)
+            service_calls = feign_parser.extract_service_calls(str(repo_path))
+            logger.info(f"Found {len(service_calls)} service calls")
+
             # Store in Neo4j
             logger.info(f"Storing dependency data for {repo_name} in Neo4j")
-            self.neo4j_store.store_repository_data(repo_name, graph_dict)
+            self.neo4j_store.store_repository_data(
+                repo_name, friendly_name, service_name, base_path, graph_dict
+            )
+            
+            # Store service calls
+            if service_calls:
+                logger.info("Storing service calls in Neo4j")
+                self.neo4j_store.store_service_calls(repo_name, service_calls)
 
             logger.info(f"Successfully processed repository: {repo_name}")
             
             # Optional: Generate and save visualization
             try:
                 from analyze import DependencyVisualizer
-                visualizer = DependencyVisualizer(dependency_graph)
+                visualizer = DependencyVisualizer(dependency_graph, service_calls)
                 visualizer.create_graph()
                 visualizer.save(os.path.join("graphs", f"{repo_name}_dependencies"), "png")
             except Exception as e:
@@ -141,9 +208,24 @@ class RepositoryProcessor:
             
             for entry in entries:
                 try:
-                    # Check if entry is a local directory path
-                    if entry.startswith(('.', '/', '~')) or os.path.isabs(entry):
-                        self.process_local_directory(entry)
+                    # Split the entry into path and metadata
+                    import shlex
+                    parts = shlex.split(entry)
+                    if len(parts) >= 4:
+                        dir_path = parts[0]
+                        # Convert Windows paths to proper format
+                        dir_path = os.path.normpath(dir_path)
+                        logger.info(f"Processing directory: {dir_path}")
+                        logger.info(f"Full entry: {entry}")
+                        
+                        # Check if directory exists
+                        if os.path.exists(dir_path):
+                            logger.info(f"Directory exists at: {dir_path}")
+                            logger.info(f"Contents: {os.listdir(dir_path)}")
+                            self.process_local_directory(dir_path)
+                        else:
+                            logger.error(f"Directory not found: {dir_path}")
+                            logger.error(f"Current working directory: {os.getcwd()}")
                     else:
                         self.process_repository(entry)
                 except Exception as e:
@@ -246,7 +328,12 @@ class RepositoryProcessor:
                     try:
                         parser = JavaSpringParser(str(self.repos_dir / repo_name))
                         dependency_graph = parser.parse_project()
-                        visualizer = DependencyVisualizer(dependency_graph)
+                        
+                        # Get service calls for visualization
+                        feign_parser = FeignClientParser(self.service_mapping_manager)
+                        service_calls = feign_parser.extract_service_calls(str(self.repos_dir / repo_name))
+                        
+                        visualizer = DependencyVisualizer(dependency_graph, service_calls)
                         visualizer.create_graph()
                         visualizer.save(os.path.join("graphs", f"{repo_name}_dependencies"), "png")
                         logger.info(f"Generated visualization for {repo_name}")

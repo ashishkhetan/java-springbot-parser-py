@@ -1,1 +1,6 @@
-/app/services/springboot-dto-tutorial
+# Format: repository_path friendly_name service_name base_path
+# Example: /path/to/repo "Friendly Name" service-name /base-path
+
+/app/services/spring-boot-microservice-example/spring-boot-cloud-eureka-order-service "Order Service" order-service /orders
+/app/services/spring-boot-microservice-example/spring-boot-cloud-eureka-notification-service "Notification Service" notification-service /notifications
+/app/services/spring-boot-microservice-example/spring-boot-cloud-eureka-user-service "User Service" user-service /users

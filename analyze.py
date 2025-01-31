@@ -272,14 +272,40 @@ class JavaSpringParser:
 
 # Visualizer
 class DependencyVisualizer:
-    def __init__(self, dependency_graph: DependencyGraph):
+    def __init__(self, dependency_graph: DependencyGraph, service_calls: List[Dict] = None):
         self.graph = dependency_graph
+        self.service_calls = service_calls or []
         self.dot = graphviz.Digraph(comment='API Dependencies')
         self.dot.attr(rankdir='LR')
-        
+
     def create_graph(self):
         try:
             self.dot.attr('node', shape='rectangle', style='rounded')
+            
+            # Create subgraph for service calls if any exist
+            if self.service_calls:
+                with self.dot.subgraph(name='cluster_service_calls') as c:
+                    c.attr(label='Service Calls')
+                    for call in self.service_calls:
+                        source_id = f"service_{call['source_service']}"
+                        target_id = f"service_{call['target_service']}"
+                        
+                        # Create service nodes if they don't exist
+                        c.node(source_id, call['source_service'], color='purple')
+                        c.node(target_id, call['target_service'], color='purple')
+                        
+                        # Create edge with call details
+                        edge_label = f"{call['http_method']} {call['path']}\n"
+                        if call['has_fallback']:
+                            edge_label += "(with fallback)"
+                        
+                        c.edge(source_id, target_id, edge_label, color='purple', style='bold')
+                        
+                        # Add DTO connections if present
+                        if call.get('request_dto'):
+                            c.edge(source_id, f"dto_{call['request_dto']}", 'sends', style='dashed')
+                        if call.get('response_dto'):
+                            c.edge(target_id, f"dto_{call['response_dto']}", 'returns', style='dashed')
             
             with self.dot.subgraph(name='cluster_endpoints') as c:
                 c.attr(label='API Endpoints')
