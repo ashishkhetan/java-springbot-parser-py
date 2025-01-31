@@ -1,20 +1,30 @@
-FROM python:3.8-slim
+# Use Python 3.11 as base image
+FROM python:3.11-slim
 
-# Install git and graphviz
+# Install system dependencies including Graphviz
 RUN apt-get update && \
-    apt-get install -y git graphviz && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get install -y --no-install-recommends \
+    git \
+    graphviz \
+    && rm -rf /var/lib/apt/lists/*
 
+# Set working directory
 WORKDIR /app
 
-# Copy requirements and install dependencies
+# Copy requirements first to leverage Docker cache
 COPY requirements.txt .
+
+# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application files
-COPY analyze.py .
-COPY neo4j_store.py .
-COPY process_repositories.py .
+# Copy application code
+COPY . .
 
-# Run the repository processor
+# Create necessary directories
+RUN mkdir -p repos graphs
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+
+# Run the processor
 CMD ["python", "process_repositories.py"]

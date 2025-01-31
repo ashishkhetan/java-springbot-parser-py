@@ -11,11 +11,13 @@ class Neo4jStore:
         with self.driver.session() as session:
             # Create constraints for unique identifiers
             constraints = [
-                "CREATE CONSTRAINT endpoint_path IF NOT EXISTS FOR (e:Endpoint) REQUIRE e.path IS UNIQUE",
+                "CREATE CONSTRAINT endpoint_id IF NOT EXISTS FOR (e:Endpoint) REQUIRE e.unique_id IS UNIQUE",
                 "CREATE CONSTRAINT dto_name IF NOT EXISTS FOR (d:DTO) REQUIRE d.name IS UNIQUE",
                 "CREATE CONSTRAINT entity_name IF NOT EXISTS FOR (e:Entity) REQUIRE e.name IS UNIQUE",
                 "CREATE CONSTRAINT service_name IF NOT EXISTS FOR (s:Service) REQUIRE s.name IS UNIQUE",
-                "CREATE CONSTRAINT repository_name IF NOT EXISTS FOR (r:Repository) REQUIRE r.name IS UNIQUE"
+                "CREATE CONSTRAINT repository_name IF NOT EXISTS FOR (r:Repository) REQUIRE r.name IS UNIQUE",
+                "CREATE CONSTRAINT service_call_id IF NOT EXISTS FOR (sc:ServiceCall) REQUIRE sc.unique_id IS UNIQUE",
+                "CREATE CONSTRAINT service_definition_name IF NOT EXISTS FOR (sd:ServiceDefinition) REQUIRE sd.service_name IS UNIQUE"
             ]
             for constraint in constraints:
                 try:
@@ -23,17 +25,25 @@ class Neo4jStore:
                 except Exception as e:
                     logging.warning(f"Constraint creation failed: {str(e)}")
 
-    def store_repository_data(self, repo_name: str, dependency_data: Dict):
+    def store_repository_data(self, repo_name: str, friendly_name: str, service_name: str, base_path: str, dependency_data: Dict):
         logging.info(f"Storing data for repository: {repo_name}")
         logging.info(f"Data to store: {dependency_data}")
         
         try:
             with self.driver.session() as session:
-                # Create repository node
+                # Create repository and service definition nodes
                 session.run("""
                     MERGE (r:Repository {name: $repo_name})
-                """, repo_name=repo_name)
-                logging.info("Created repository node")
+                    MERGE (sd:ServiceDefinition {
+                        repository_name: $repo_name,
+                        friendly_name: $friendly_name,
+                        service_name: $service_name,
+                        base_path: $base_path
+                    })
+                    MERGE (r)-[:DEFINES]->(sd)
+                """, repo_name=repo_name, friendly_name=friendly_name,
+                     service_name=service_name, base_path=base_path)
+                logging.info("Created repository and service definition nodes")
 
                 # Store endpoints
                 logging.info("Storing endpoints...")
@@ -83,7 +93,9 @@ class Neo4jStore:
                 path: $path,
                 method: $method,
                 controller_class: $controller_class,
-                method_name: $method_name
+                method_name: $method_name,
+                repository: $repo_name,
+                unique_id: $repo_name + '_' + $controller_class + '_' + $method_name
             })
             MERGE (e)-[:BELONGS_TO]->(r)
             WITH e
@@ -240,6 +252,77 @@ class Neo4jStore:
                 } as repo_data
             """)
             return [(record["repo_name"], record["repo_data"]) for record in result]
+
+    def store_service_calls(self, repo_name: str, service_calls: List[Dict]):
+        """Store service calls detected from FeignClients"""
+        logging.info(f"Storing service calls for repository: {repo_name}")
+        
+        try:
+            with self.driver.session() as session:
+                for call in service_calls:
+                    unique_id = f"{call['source_service']}_{call['interface_name']}_{call['method_name']}"
+                    session.run("""
+                        MATCH (r:Repository {name: $repo_name})
+                        MATCH (sd1:ServiceDefinition {service_name: $source_service})
+                        MATCH (sd2:ServiceDefinition {service_name: $target_service})
+                        MERGE (sc:ServiceCall {
+                            unique_id: $unique_id,
+                            interface_name: $interface_name,
+                            method_name: $method_name,
+                            http_method: $http_method,
+                            path: $path,
+                            url_value: $url_value,
+                            has_fallback: $has_fallback
+                        })
+                        MERGE (sc)-[:BELONGS_TO]->(r)
+                        MERGE (sd1)-[:CALLS]->(sc)
+                        MERGE (sc)-[:TARGETS]->(sd2)
+                        WITH sc
+                        FOREACH (dto_name IN CASE WHEN $request_dto IS NOT NULL 
+                                THEN [$request_dto] ELSE [] END |
+                            MERGE (d:DTO {name: dto_name})
+                            MERGE (sc)-[:USES_REQUEST_DTO]->(d))
+                        FOREACH (dto_name IN CASE WHEN $response_dto IS NOT NULL 
+                                THEN [$response_dto] ELSE [] END |
+                            MERGE (d:DTO {name: dto_name})
+                            MERGE (sc)-[:RETURNS_RESPONSE_DTO]->(d))
+                    """, repo_name=repo_name, unique_id=unique_id, **call)
+                    
+                logging.info(f"Stored {len(service_calls)} service calls")
+                
+        except Exception as e:
+            logging.error(f"Error storing service calls: {str(e)}")
+            raise
+
+    def get_service_call_graph(self) -> Dict:
+        """Get a complete graph of service calls"""
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (sd1:ServiceDefinition)-[:CALLS]->(sc:ServiceCall)-[:TARGETS]->(sd2:ServiceDefinition)
+                OPTIONAL MATCH (sc)-[:USES_REQUEST_DTO]->(req:DTO)
+                OPTIONAL MATCH (sc)-[:RETURNS_RESPONSE_DTO]->(resp:DTO)
+                RETURN {
+                    source_service: {
+                        name: sd1.service_name,
+                        friendly_name: sd1.friendly_name
+                    },
+                    target_service: {
+                        name: sd2.service_name,
+                        friendly_name: sd2.friendly_name
+                    },
+                    call_details: {
+                        interface: sc.interface_name,
+                        method: sc.method_name,
+                        http_method: sc.http_method,
+                        path: sc.path,
+                        request_dto: req.name,
+                        response_dto: resp.name,
+                        has_fallback: sc.has_fallback
+                    }
+                } as service_call
+            """)
+            
+            return [record["service_call"] for record in result]
 
     def close(self):
         self.driver.close()
